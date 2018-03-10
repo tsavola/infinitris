@@ -10,12 +10,20 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
+use sdl2::render::BlendMode;
 
 const WIN_WIDTH: usize = 512;
 const WIN_HEIGHT: usize = 768;
 const GAME_WIDTH: usize = 16;
 const CELL_SIZE: usize = WIN_WIDTH / GAME_WIDTH;
 const GAP_WIDTH: i32 = 1;
+
+static BACKGROUND_COLOR: Color = Color {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
+};
 
 struct Piece {
     width: usize,
@@ -317,7 +325,7 @@ fn drop_piece(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &mut
 }
 
 fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Game) {
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.set_draw_color(BACKGROUND_COLOR);
     canvas.clear();
 
     for (j, row) in game.world.iter().rev().enumerate() {
@@ -368,7 +376,7 @@ fn render_block(
     y: i32,
     color: Color,
 ) {
-    canvas.set_draw_color(Color::RGB(color.r / 2, color.g / 2, color.b / 2));
+    canvas.set_draw_color(Color::RGBA(color.r, color.g, color.b, 127));
 
     canvas
         .fill_rect(Rect::new(x, y, CELL_SIZE as u32, CELL_SIZE as u32))
@@ -403,7 +411,8 @@ pub fn main() {
         .build()
         .unwrap();
 
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.set_blend_mode(BlendMode::Blend);
+    canvas.set_draw_color(BACKGROUND_COLOR);
     canvas.clear();
     canvas.present();
 
@@ -434,6 +443,8 @@ pub fn main() {
         }
 
         render_game(&mut canvas, &game);
+
+        let mut pause = false;
 
         for event in event_pump.poll_iter() {
             match event {
@@ -469,10 +480,38 @@ pub fn main() {
                     next_step = Instant::now() + interval;
                 }
 
+                Event::KeyDown {
+                    keycode: Some(Keycode::P),
+                    ..
+                } => pause = true,
+
                 Event::Quit { .. } => break 'running,
 
                 _ => {}
             }
+        }
+
+        if pause {
+            canvas.set_draw_color(Color::RGBA(0, 0, 0, 191));
+            canvas
+                .fill_rect(Rect::new(0, 0, WIN_WIDTH as u32, WIN_HEIGHT as u32))
+                .unwrap();
+            canvas.present();
+
+            'paused: loop {
+                match event_pump.wait_event() {
+                    Event::KeyDown {
+                        keycode: Some(Keycode::P),
+                        ..
+                    } => break 'paused,
+
+                    Event::Quit { .. } => break 'running,
+
+                    _ => {}
+                }
+            }
+
+            next_step = Instant::now() + interval;
         }
     }
 }
