@@ -12,11 +12,15 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::BlendMode;
 
-const WIN_WIDTH: usize = 512;
-const WIN_HEIGHT: usize = 768;
-const GAME_WIDTH: usize = 16;
-const CELL_SIZE: usize = WIN_WIDTH / GAME_WIDTH;
-const GAP_WIDTH: i32 = 1;
+const GAME_WIDTH: usize = 10;
+const CELL_SIZE: usize = 32;
+const GAP_WIDTH: usize = 4;
+const PIECE_POS: usize = 3;
+const START_HEIGHT: usize = 10;
+const ZOOM: usize = 4;
+const CELL_BORDER: i32 = 1;
+const WIN_WIDTH: usize = GAME_WIDTH * CELL_SIZE + GAP_WIDTH + GAME_WIDTH * CELL_SIZE / ZOOM;
+const WIN_HEIGHT: usize = 960;
 
 static BACKGROUND_COLOR: Color = Color {
     r: 0,
@@ -308,8 +312,8 @@ fn advance_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &m
             }
         }
 
-        game.y = 24 - 4;
-        game.x = 6;
+        game.y = game.world.len() + START_HEIGHT;
+        game.x = (GAME_WIDTH - 4) / 2;
         game.orient = 0;
     } else {
         game.y -= 1;
@@ -328,29 +332,79 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
     canvas.set_draw_color(BACKGROUND_COLOR);
     canvas.clear();
 
+    let piece = game.effective_piece();
+    let piece_x = game.x * CELL_SIZE;
+    let piece_y = (PIECE_POS + 4 - piece.height) * CELL_SIZE;
+
+    let world_y = ((PIECE_POS + 4) * CELL_SIZE) as i32
+        + (game.y as i32 - game.world.len() as i32) * CELL_SIZE as i32;
+
     for (j, row) in game.world.iter().rev().enumerate() {
         for (i, cell) in row.iter().enumerate() {
             if *cell != 0 {
                 render_block(
                     canvas,
+                    CELL_SIZE as u32,
                     (i * CELL_SIZE) as i32,
-                    ((24 - game.world.len() + j) * CELL_SIZE) as i32,
+                    world_y + (j * CELL_SIZE) as i32,
+                    COLORS[(*cell - 1) as usize],
+                );
+
+                render_block(
+                    canvas,
+                    (CELL_SIZE / ZOOM) as u32,
+                    (GAME_WIDTH * CELL_SIZE + GAP_WIDTH + i * CELL_SIZE / ZOOM) as i32,
+                    ((PIECE_POS + j) * CELL_SIZE / ZOOM) as i32,
                     COLORS[(*cell - 1) as usize],
                 );
             }
         }
     }
 
-    let piece = game.effective_piece();
-    let x = (game.x * CELL_SIZE) as i32;
-    let y = WIN_HEIGHT as i32 - ((game.y + piece.height) * CELL_SIZE) as i32;
-    render_piece(canvas, x, y, piece, COLORS[game.piece_index]);
+    canvas.set_draw_color(Color::RGB(31, 31, 31));
+
+    canvas
+        .fill_rect(Rect::new(
+            0,
+            world_y + (game.world.len() * CELL_SIZE) as i32,
+            (GAME_WIDTH * CELL_SIZE) as u32,
+            WIN_HEIGHT as u32,
+        ))
+        .unwrap();
+
+    canvas
+        .fill_rect(Rect::new(
+            (GAME_WIDTH * CELL_SIZE) as i32,
+            0,
+            GAP_WIDTH as u32,
+            WIN_HEIGHT as u32,
+        ))
+        .unwrap();
+
+    canvas
+        .fill_rect(Rect::new(
+            (GAME_WIDTH * CELL_SIZE + GAP_WIDTH) as i32,
+            ((PIECE_POS + game.world.len()) * CELL_SIZE / ZOOM) as i32,
+            (GAME_WIDTH * CELL_SIZE / ZOOM) as u32,
+            WIN_HEIGHT as u32,
+        ))
+        .unwrap();
+
+    render_piece(
+        canvas,
+        CELL_SIZE,
+        piece_x as i32,
+        piece_y as i32,
+        piece,
+        COLORS[game.piece_index],
+    );
 
     canvas.present();
 }
 
 fn render_piece(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    size: usize,
     x: i32,
     y: i32,
     piece: Piece,
@@ -361,8 +415,9 @@ fn render_piece(
             if *cell {
                 render_block(
                     canvas,
-                    x + (i * CELL_SIZE) as i32,
-                    y + (j * CELL_SIZE) as i32,
+                    size as u32,
+                    x + (i * size) as i32,
+                    y + (j * size) as i32,
                     color,
                 );
             }
@@ -372,24 +427,23 @@ fn render_piece(
 
 fn render_block(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    size: u32,
     x: i32,
     y: i32,
     color: Color,
 ) {
     canvas.set_draw_color(Color::RGBA(color.r, color.g, color.b, 127));
 
-    canvas
-        .fill_rect(Rect::new(x, y, CELL_SIZE as u32, CELL_SIZE as u32))
-        .unwrap();
+    canvas.fill_rect(Rect::new(x, y, size, size)).unwrap();
 
     canvas.set_draw_color(color);
 
     canvas
         .fill_rect(Rect::new(
-            x + GAP_WIDTH / 2,
-            y + GAP_WIDTH / 2,
-            CELL_SIZE as u32 - GAP_WIDTH as u32,
-            CELL_SIZE as u32 - GAP_WIDTH as u32,
+            x + CELL_BORDER / 2,
+            y + CELL_BORDER / 2,
+            size - CELL_BORDER as u32,
+            size - CELL_BORDER as u32,
         ))
         .unwrap();
 }
@@ -423,19 +477,26 @@ pub fn main() {
         world: Vec::new(),
         piece_index: num_pieces.ind_sample(&mut rng),
         orient: 0,
-        y: 24 - 4,
-        x: 6,
+        y: START_HEIGHT,
+        x: (GAME_WIDTH - 4) / 2,
     };
 
     let mut event_pump = sdl_context.event_pump().unwrap();
+    let mut interaction = false;
 
     let interval = Duration::new(0, 500000000);
     let mut next_step = Instant::now() + interval;
 
     'running: loop {
+        let mut pause = false;
+
         let now = Instant::now();
         if now >= next_step {
             if advance_game(&mut canvas, &mut game) {
+                if !interaction {
+                    pause = true;
+                }
+                interaction = false;
                 game.piece_index = num_pieces.ind_sample(&mut rng);
                 game.orient = 0;
             }
@@ -444,29 +505,37 @@ pub fn main() {
 
         render_game(&mut canvas, &game);
 
-        let mut pause = false;
-
         for event in event_pump.poll_iter() {
             match event {
                 Event::KeyDown {
                     keycode: Some(Keycode::Left),
                     ..
-                } => move_piece(&mut game, -1),
+                } => {
+                    move_piece(&mut game, -1);
+                    interaction = true;
+                }
 
                 Event::KeyDown {
                     keycode: Some(Keycode::Right),
                     ..
-                } => move_piece(&mut game, 1),
+                } => {
+                    move_piece(&mut game, 1);
+                    interaction = true;
+                }
 
                 Event::KeyDown {
                     keycode: Some(Keycode::Up),
                     ..
-                } => rotate_piece(&mut game),
+                } => {
+                    rotate_piece(&mut game);
+                    interaction = true;
+                }
 
                 Event::KeyDown {
                     keycode: Some(Keycode::Down),
                     ..
                 } => {
+                    interaction = true;
                     next_step = now;
                 }
 
@@ -474,6 +543,7 @@ pub fn main() {
                     keycode: Some(Keycode::Space),
                     ..
                 } => {
+                    interaction = true;
                     drop_piece(&mut canvas, &mut game);
                     game.piece_index = num_pieces.ind_sample(&mut rng);
                     game.orient = 0;
@@ -483,9 +553,13 @@ pub fn main() {
                 Event::KeyDown {
                     keycode: Some(Keycode::P),
                     ..
-                } => pause = true,
+                } => {
+                    pause = true;
+                }
 
-                Event::Quit { .. } => break 'running,
+                Event::Quit { .. } => {
+                    break 'running;
+                }
 
                 _ => {}
             }
@@ -496,21 +570,27 @@ pub fn main() {
             canvas
                 .fill_rect(Rect::new(0, 0, WIN_WIDTH as u32, WIN_HEIGHT as u32))
                 .unwrap();
-            canvas.present();
 
             'paused: loop {
+                canvas.present();
+
                 match event_pump.wait_event() {
                     Event::KeyDown {
                         keycode: Some(Keycode::P),
                         ..
-                    } => break 'paused,
+                    } => {
+                        break 'paused;
+                    }
 
-                    Event::Quit { .. } => break 'running,
+                    Event::Quit { .. } => {
+                        break 'running;
+                    }
 
                     _ => {}
                 }
             }
 
+            interaction = true;
             next_step = Instant::now() + interval;
         }
     }
