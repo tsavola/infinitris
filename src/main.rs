@@ -21,9 +21,10 @@ const CELL_SIZE: usize = 32;
 const GAP_WIDTH: usize = 4;
 const PIECE_POS: usize = 3;
 const START_HEIGHT: usize = 10;
-const ZOOM: usize = 4;
+const NEXT_ZOOM: usize = 2;
+const WORLD_ZOOM: usize = 5;
 const CELL_BORDER: i32 = 1;
-const WIN_WIDTH: usize = GAME_WIDTH * CELL_SIZE + GAP_WIDTH + GAME_WIDTH * CELL_SIZE / ZOOM;
+const WIN_WIDTH: usize = GAME_WIDTH * CELL_SIZE + GAP_WIDTH + 64;
 const WIN_HEIGHT: usize = 960;
 
 static BACKGROUND_COLOR: Color = Color {
@@ -161,6 +162,7 @@ struct Game {
     world: Vec<[u32; GAME_WIDTH]>,
     next_gen: u32,
     piece_index: usize,
+    next_piece_index: usize,
     orient: u8,
     y: usize,
     x: usize,
@@ -384,9 +386,10 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
 
                 render_block(
                     canvas,
-                    (CELL_SIZE / ZOOM) as u32,
-                    (GAME_WIDTH * CELL_SIZE + GAP_WIDTH + i * CELL_SIZE / ZOOM) as i32,
-                    ((PIECE_POS + j) * CELL_SIZE / ZOOM) as i32,
+                    (CELL_SIZE / WORLD_ZOOM) as u32,
+                    (GAME_WIDTH * CELL_SIZE + GAP_WIDTH + i * CELL_SIZE / WORLD_ZOOM) as i32,
+                    (GAP_WIDTH + 4 * CELL_SIZE / NEXT_ZOOM + GAP_WIDTH
+                        + (PIECE_POS + j) * CELL_SIZE / WORLD_ZOOM) as i32,
                     color,
                 );
             }
@@ -416,8 +419,9 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
     canvas
         .fill_rect(Rect::new(
             (GAME_WIDTH * CELL_SIZE + GAP_WIDTH) as i32,
-            ((PIECE_POS + game.world.len()) * CELL_SIZE / ZOOM) as i32,
-            (GAME_WIDTH * CELL_SIZE / ZOOM) as u32,
+            (GAP_WIDTH + 4 * CELL_SIZE / NEXT_ZOOM + GAP_WIDTH
+                + (PIECE_POS + game.world.len()) * CELL_SIZE / WORLD_ZOOM) as i32,
+            (GAME_WIDTH * CELL_SIZE / WORLD_ZOOM) as u32,
             WIN_HEIGHT as u32,
         ))
         .unwrap();
@@ -446,6 +450,15 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
         piece_y as i32,
         &piece,
         COLORS[game.piece_index],
+    );
+
+    render_piece(
+        canvas,
+        CELL_SIZE / NEXT_ZOOM,
+        (GAME_WIDTH * CELL_SIZE + GAP_WIDTH) as i32,
+        GAP_WIDTH as i32,
+        &PIECES[game.next_piece_index],
+        COLORS[game.next_piece_index],
     );
 
     canvas.present();
@@ -521,7 +534,7 @@ pub fn main() {
 
     let mut rng = rand::thread_rng();
     let mut piece_pool = Vec::new();
-    let mut next_piece_index = || {
+    let mut choose_piece = || {
         if piece_pool.len() == 0 {
             for piece in 0..7 {
                 for _ in 0..4 {
@@ -536,7 +549,8 @@ pub fn main() {
     let mut game = Game {
         world: Vec::new(),
         next_gen: 1,
-        piece_index: next_piece_index(),
+        piece_index: choose_piece(),
+        next_piece_index: choose_piece(),
         orient: 0,
         y: START_HEIGHT,
         x: (GAME_WIDTH - 4) / 2,
@@ -609,7 +623,8 @@ pub fn main() {
                     pause = true;
                 }
                 interaction = false;
-                game.piece_index = next_piece_index();
+                game.piece_index = game.next_piece_index;
+                game.next_piece_index = choose_piece();
                 game.orient = 0;
             }
             next_step = now + interval;
@@ -657,7 +672,8 @@ pub fn main() {
                 } => {
                     interaction = true;
                     drop_piece(&mut canvas, &mut game);
-                    game.piece_index = next_piece_index();
+                    game.piece_index = game.next_piece_index;
+                    game.next_piece_index = choose_piece();
                     game.orient = 0;
                     next_step = Instant::now() + interval;
                 }
