@@ -265,26 +265,29 @@ fn rotate_piece(game: &mut Game) {
     game.orient = new_orient;
 }
 
-fn advance_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &mut Game) -> bool {
-    let piece = game.effective_piece();
-    let mut collision = false;
-
-    if game.y == 0 {
-        collision = true;
+fn detect_collision(game: &Game, piece_y: usize, piece: &Piece) -> bool {
+    if piece_y == 0 {
+        true
     } else {
         for j in 0..piece.height {
-            if game.y + j <= game.world.len() {
+            if piece_y + j <= game.world.len() {
                 for i in 0..piece.width {
                     if piece.cells[piece.height - j - 1][i]
-                        && game.world[game.y + j - 1][game.x + i] != 0
+                        && game.world[piece_y + j - 1][game.x + i] != 0
                     {
-                        collision = true;
-                        break;
+                        return true;
                     }
                 }
             }
         }
+
+        false
     }
+}
+
+fn advance_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &mut Game) -> bool {
+    let piece = game.effective_piece();
+    let collision = detect_collision(game, game.y, &piece);
 
     if collision {
         for j in 0..piece.height {
@@ -419,12 +422,29 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
         ))
         .unwrap();
 
+    let mut shadow_distance: usize = 0;
+    loop {
+        if detect_collision(game, game.y - shadow_distance, &piece) {
+            break;
+        }
+        shadow_distance += 1;
+    }
+
+    render_piece(
+        canvas,
+        CELL_SIZE,
+        piece_x as i32,
+        (piece_y + shadow_distance * CELL_SIZE) as i32,
+        &piece,
+        Color::RGBA(63, 63, 63, 15),
+    );
+
     render_piece(
         canvas,
         CELL_SIZE,
         piece_x as i32,
         piece_y as i32,
-        piece,
+        &piece,
         COLORS[game.piece_index],
     );
 
@@ -436,7 +456,7 @@ fn render_piece(
     size: usize,
     x: i32,
     y: i32,
-    piece: Piece,
+    piece: &Piece,
     color: Color,
 ) {
     for (j, row) in piece.cells.iter().enumerate() {
