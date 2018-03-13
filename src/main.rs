@@ -1,6 +1,11 @@
 extern crate rand;
 extern crate sdl2;
 
+use std::f64;
+use std::fs::File;
+use std::fs::rename;
+use std::io::Read;
+use std::io::Write;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -154,7 +159,8 @@ static COLORS: [Color; 7] = [
 ];
 
 struct Game {
-    world: Vec<[u8; GAME_WIDTH]>,
+    world: Vec<[u32; GAME_WIDTH]>,
+    next_gen: u32,
     piece_index: usize,
     orient: u8,
     y: usize,
@@ -291,7 +297,7 @@ fn advance_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &m
 
             for (i, cell) in piece.cells[piece.height - j - 1].iter().enumerate() {
                 if *cell {
-                    row[game.x + i] = game.piece_index as u8 + 1;
+                    row[game.x + i] = game.next_gen;
                 }
             }
         }
@@ -312,9 +318,25 @@ fn advance_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &m
             }
         }
 
+        game.next_gen += 1;
         game.y = game.world.len() + START_HEIGHT;
         game.x = (GAME_WIDTH - 4) / 2;
         game.orient = 0;
+
+        let mut file = File::create(".infinitris.state.tmp").unwrap();
+        file.write(&[1, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+        for row in game.world.iter() {
+            for cell in row.iter() {
+                file.write(&[
+                    ((*cell >> 24) & 0xff) as u8,
+                    ((*cell >> 16) & 0xff) as u8,
+                    ((*cell >> 8) & 0xff) as u8,
+                    (*cell & 0xff) as u8,
+                ]).unwrap();
+            }
+        }
+        file.flush().unwrap();
+        rename(".infinitris.state.tmp", "infinitris.state").unwrap();
     } else {
         game.y -= 1;
     }
@@ -342,12 +364,20 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
     for (j, row) in game.world.iter().rev().enumerate() {
         for (i, cell) in row.iter().enumerate() {
             if *cell != 0 {
+                let age = *cell as f64 / game.next_gen as f64;
+
+                let color = Color::RGB(
+                    (64.0 + (0.5 * f64::consts::PI * age).sin() * 127.0) as u8,
+                    (160.0 * age + 32.0 * (64.0 * f64::consts::PI * age).sin()) as u8,
+                    (64.0 + (0.5 * f64::consts::PI * age).cos() * 127.0) as u8,
+                );
+
                 render_block(
                     canvas,
                     CELL_SIZE as u32,
                     (i * CELL_SIZE) as i32,
                     world_y + (j * CELL_SIZE) as i32,
-                    COLORS[(*cell - 1) as usize],
+                    color,
                 );
 
                 render_block(
@@ -355,7 +385,7 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
                     (CELL_SIZE / ZOOM) as u32,
                     (GAME_WIDTH * CELL_SIZE + GAP_WIDTH + i * CELL_SIZE / ZOOM) as i32,
                     ((PIECE_POS + j) * CELL_SIZE / ZOOM) as i32,
-                    COLORS[(*cell - 1) as usize],
+                    color,
                 );
             }
         }
@@ -470,15 +500,79 @@ pub fn main() {
     canvas.clear();
     canvas.present();
 
-    let num_pieces = Range::new(0, 7);
     let mut rng = rand::thread_rng();
+    let mut piece_pool = Vec::new();
+    let mut next_piece_index = || {
+        if piece_pool.len() == 0 {
+            for piece in 0..7 {
+                for _ in 0..4 {
+                    piece_pool.push(piece);
+                }
+            }
+        }
+
+        let range = Range::new(0, piece_pool.len());
+        piece_pool.remove(range.ind_sample(&mut rng))
+    };
 
     let mut game = Game {
         world: Vec::new(),
-        piece_index: num_pieces.ind_sample(&mut rng),
+        next_gen: 1,
+        piece_index: next_piece_index(),
         orient: 0,
         y: START_HEIGHT,
         x: (GAME_WIDTH - 4) / 2,
+    };
+
+    match File::open("infinitris.state") {
+        Ok(mut file) => {
+            let mut header = [0u8; 8];
+
+            let size = file.read(&mut header).unwrap();
+            if size < header.len() {
+                panic!("Invalid state (no header)");
+            }
+
+            let version = header[0];
+            match version {
+                1 => {
+                    let mut max_gen: u32 = 0;
+
+                    loop {
+                        let mut bytes = [0u8; GAME_WIDTH * 4];
+
+                        let size = file.read(&mut bytes).unwrap();
+                        if size == 0 {
+                            break;
+                        }
+
+                        if size != GAME_WIDTH * 4 {
+                            panic!("Invalid state (read length {})", size);
+                        }
+
+                        let mut row = [0u32; GAME_WIDTH];
+
+                        for (i, cell) in row.iter_mut().enumerate() {
+                            *cell = ((bytes[i * 4 + 0] as u32) << 24)
+                                | ((bytes[i * 4 + 1] as u32) << 16)
+                                | ((bytes[i * 4 + 2] as u32) << 8)
+                                | (bytes[i * 4 + 3] as u32);
+                            max_gen = u32::max(max_gen, *cell);
+                        }
+
+                        game.world.push(row);
+                    }
+
+                    game.next_gen = max_gen + 1;
+                }
+
+                _ => panic!("Invalid state (version {})", version),
+            }
+
+            game.y = game.world.len() + START_HEIGHT;
+        }
+
+        Err(_) => {}
     };
 
     let mut event_pump = sdl_context.event_pump().unwrap();
@@ -497,7 +591,7 @@ pub fn main() {
                     pause = true;
                 }
                 interaction = false;
-                game.piece_index = num_pieces.ind_sample(&mut rng);
+                game.piece_index = next_piece_index();
                 game.orient = 0;
             }
             next_step = now + interval;
@@ -545,7 +639,7 @@ pub fn main() {
                 } => {
                     interaction = true;
                     drop_piece(&mut canvas, &mut game);
-                    game.piece_index = num_pieces.ind_sample(&mut rng);
+                    game.piece_index = next_piece_index();
                     game.orient = 0;
                     next_step = Instant::now() + interval;
                 }
