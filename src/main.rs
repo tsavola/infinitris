@@ -9,8 +9,7 @@ use std::io::Write;
 use std::time::Duration;
 use std::time::Instant;
 
-use rand::distributions::IndependentSample;
-use rand::distributions::Range;
+use rand::Rng;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
@@ -511,8 +510,7 @@ pub fn main() {
             }
         }
 
-        let range = Range::new(0, piece_pool.len());
-        piece_pool.remove(range.ind_sample(&mut rng))
+        *rng.choose(&piece_pool).unwrap()
     };
 
     let mut game = Game {
