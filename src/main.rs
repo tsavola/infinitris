@@ -637,6 +637,10 @@ pub fn main() {
                 Event::KeyDown {
                     keycode: Some(Keycode::Left),
                     ..
+                }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::A),
+                    ..
                 } => {
                     move_piece(&mut game, -1);
                     interaction = true;
@@ -644,6 +648,10 @@ pub fn main() {
 
                 Event::KeyDown {
                     keycode: Some(Keycode::Right),
+                    ..
+                }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::D),
                     ..
                 } => {
                     move_piece(&mut game, 1);
@@ -653,6 +661,10 @@ pub fn main() {
                 Event::KeyDown {
                     keycode: Some(Keycode::Up),
                     ..
+                }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::W),
+                    ..
                 } => {
                     rotate_piece(&mut game);
                     interaction = true;
@@ -660,6 +672,10 @@ pub fn main() {
 
                 Event::KeyDown {
                     keycode: Some(Keycode::Down),
+                    ..
+                }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::S),
                     ..
                 } => {
                     interaction = true;
