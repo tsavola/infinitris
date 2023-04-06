@@ -2,8 +2,8 @@ extern crate rand;
 extern crate sdl2;
 
 use std::f64;
-use std::fs::File;
 use std::fs::rename;
+use std::fs::File;
 use std::io::Read;
 use std::io::Write;
 use std::time::Duration;
@@ -297,7 +297,7 @@ fn advance_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &m
                 game.world.push([0; GAME_WIDTH]);
             };
 
-            let mut row = &mut game.world[game.y + j];
+            let row = &mut game.world[game.y + j];
 
             for (i, cell) in piece.cells[piece.height - j - 1].iter().enumerate() {
                 if *cell {
@@ -336,7 +336,8 @@ fn advance_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &m
                     ((*cell >> 16) & 0xff) as u8,
                     ((*cell >> 8) & 0xff) as u8,
                     (*cell & 0xff) as u8,
-                ]).unwrap();
+                ])
+                .unwrap();
             }
         }
         file.flush().unwrap();
@@ -388,7 +389,9 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
                     canvas,
                     (CELL_SIZE / WORLD_ZOOM) as u32,
                     (GAME_WIDTH * CELL_SIZE + GAP_WIDTH + i * CELL_SIZE / WORLD_ZOOM) as i32,
-                    (GAP_WIDTH + 4 * CELL_SIZE / NEXT_ZOOM + GAP_WIDTH
+                    (GAP_WIDTH
+                        + 4 * CELL_SIZE / NEXT_ZOOM
+                        + GAP_WIDTH
                         + (PIECE_POS + j) * CELL_SIZE / WORLD_ZOOM) as i32,
                     color,
                 );
@@ -419,7 +422,9 @@ fn render_game(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, game: &Ga
     canvas
         .fill_rect(Rect::new(
             (GAME_WIDTH * CELL_SIZE + GAP_WIDTH) as i32,
-            (GAP_WIDTH + 4 * CELL_SIZE / NEXT_ZOOM + GAP_WIDTH
+            (GAP_WIDTH
+                + 4 * CELL_SIZE / NEXT_ZOOM
+                + GAP_WIDTH
                 + (PIECE_POS + game.world.len()) * CELL_SIZE / WORLD_ZOOM) as i32,
             (GAME_WIDTH * CELL_SIZE / WORLD_ZOOM) as u32,
             WIN_HEIGHT as u32,
@@ -600,12 +605,40 @@ pub fn main() {
 
                 _ => panic!("Invalid state (version {})", version),
             }
-
-            game.y = game.world.len() + START_HEIGHT;
         }
 
-        Err(_) => {}
+        Err(_) => {
+            let mut rng = rand::thread_rng();
+
+            for _ in 0..256 {
+                let mut row = [0u32; GAME_WIDTH];
+
+                loop {
+                    let mut any = false;
+                    let mut all = true;
+
+                    for i in 0..row.len() {
+                        if rng.gen_bool(0.5) {
+                            row[i] = 1;
+                            any = true;
+                        } else {
+                            all = false;
+                        }
+                    }
+
+                    if any && !all {
+                        break;
+                    }
+                }
+
+                game.world.push(row);
+            }
+
+            game.next_gen = 2;
+        }
     };
+
+    game.y = game.world.len() + START_HEIGHT;
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut interaction = false;
